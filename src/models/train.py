@@ -20,8 +20,8 @@ if project_root not in sys.path:
     logger.info(f"Added {project_root} to sys.path")
 
 from models.trained_models.BioMedClip.encoder import BiomedCLIPEncoder
-from models.Q_former.q_former import Qformer, BertConfig
-from models.LLM.xray_report_generator import XrayReportGenerator
+from models.trained_models.Q_former.q_former import Qformer, BertConfig
+from models.trained_models.biogpt.biogpt_model import XrayReportGenerator
 from configs.constants import MODEL_NAMES, MODEL_WEIGHTS
 
 # --- Configuration for Training ---
