@@ -2,11 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint
-from logging import logger
+from logging import Logger
 import math
 import warnings
 from typing import Optional, Tuple, Dict, Any
 from transformers.activations import ACT2FN
+
+logger = Logger()
 
 class ModelOutput:
     def __init__(self, **kwargs):
