@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint
+from logging import logger
 import math
 import warnings
 from typing import Optional, Tuple, Dict, Any
@@ -10,12 +11,20 @@ from transformers.activations import ACT2FN
 class ModelOutput:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
+        # Enable both dictionary and attribute access
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+    
     def __getitem__(self, key):
         return self.kwargs[key]
+    
     def __setitem__(self, key, value):
         self.kwargs[key] = value
+        setattr(self, key, value)
+    
     def __contains__(self, key):
         return key in self.kwargs
+    
     def __repr__(self):
         return str(self.kwargs)
 
@@ -34,39 +43,44 @@ def apply_chunking_to_forward(
 ):
     """
     Helper function to apply a forward function to chunks of input tensors.
-    Used for gradient checkpointing or memory efficiency.
+    Fixed to handle variable chunk sizes correctly.
     """
-    if chunk_size > 0:
-        return torch.cat(
-            [
-                forward_fn(*[t.narrow(seq_len_dim, i, chunk_size) for t in input_tensors])
-                for i in range(0, input_tensors[0].shape[seq_len_dim], chunk_size)
-            ],
-            dim=seq_len_dim,
-        )
-    return forward_fn(*input_tensors)
+    if chunk_size <= 0:
+        return forward_fn(*input_tensors)
+    
+    seq_len = input_tensors[0].shape[seq_len_dim]
+    chunks = []
+    
+    for i in range(0, seq_len, chunk_size):
+        # Calculate actual chunk size for this iteration
+        actual_chunk_size = min(chunk_size, seq_len - i)
+        chunk_inputs = [t.narrow(seq_len_dim, i, actual_chunk_size) for t in input_tensors]
+        chunks.append(forward_fn(*chunk_inputs))
+    
+    return torch.cat(chunks, dim=seq_len_dim)
 
 class BertConfig:
     """
     Configuration for the Q-Former's internal BERT-like layers.
-    This defines the architecture parameters for the Transformer blocks
-    that make up the Q-Former.
     """
     def __init__(self,
-                  hidden_size: int = 768, # Dimensionality of the query embeddings and internal representations
-                  num_hidden_layers: int = 6, # Number of Transformer layers in the Q-Former
-                  num_attention_heads: int = 12, # Number of attention heads in each attention layer
-                  intermediate_size: int = 3072, # Size of the "intermediate" (feed-forward) layer
-                  hidden_act: str = "gelu", # Activation function for the intermediate layer
-                  hidden_dropout_prob: float = 0.1, # Dropout probability for hidden states
-                  attention_probs_dropout_prob: float = 0.1, # Dropout probability for attention weights
-                  initializer_range: float = 0.02, # Standard deviation for weight initialization
-                  layer_norm_eps: float = 1e-12, # Epsilon for layer normalization
-                  add_cross_attention: bool = True, # Enable cross-attention to image features
-                  cross_attention_freq: int = 1, # How often cross-attention layers appear (e.g., 1 means every layer)
-                  encoder_width: int = 512, # Dimensionality of the input image features from BiomedCLIP
-                  num_query_tokens: int = 32, # Number of learnable query embeddings
-                  gradient_checkpointing: bool = False): # Enable gradient checkpointing for memory saving
+                  hidden_size: int = 768,
+                  num_hidden_layers: int = 6,
+                  num_attention_heads: int = 12,
+                  intermediate_size: int = 3072,
+                  hidden_act: str = "gelu",
+                  hidden_dropout_prob: float = 0.1,
+                  attention_probs_dropout_prob: float = 0.1,
+                  initializer_range: float = 0.02,
+                  layer_norm_eps: float = 1e-12,
+                  add_cross_attention: bool = True,
+                  cross_attention_freq: int = 1,
+                  encoder_width: int = 512,
+                  num_query_tokens: int = 32,
+                  gradient_checkpointing: bool = False,
+                  max_position_embeddings: int = 1024,  # Increased for flexibility
+                  position_embedding_type: str = "absolute"):
+        
         self.hidden_size = hidden_size
         self.num_hidden_layers = num_hidden_layers
         self.num_attention_heads = num_attention_heads
@@ -81,17 +95,16 @@ class BertConfig:
         self.encoder_width = encoder_width
         self.num_query_tokens = num_query_tokens
         self.gradient_checkpointing = gradient_checkpointing
+        self.max_position_embeddings = max_position_embeddings
+        self.position_embedding_type = position_embedding_type
+        
+        # Optional parameters (may not be used in Q-Former)
         self.vocab_size = 30522
-        self.max_position_embeddings = 512
         self.pad_token_id = 0
-        self.position_embedding_type = "absolute"
-
 
 class BertSelfAttention(nn.Module):
     """
     Self-attention mechanism for BERT-like models.
-    Handles both self-attention (queries attend to themselves) and cross-attention
-    (queries attend to encoder hidden states, i.e., image features).
     """
     def __init__(self, config: BertConfig, is_cross_attention: bool):
         super().__init__()
@@ -122,13 +135,10 @@ class BertSelfAttention(nn.Module):
             self.distance_embedding = nn.Embedding(
                 2 * config.max_position_embeddings - 1, self.attention_head_size
             )
-        self.save_attention = False 
 
     def transpose_for_scores(self, x: torch.Tensor) -> torch.Tensor:
         """
         Transposes a tensor for multi-head attention scores.
-        Input: (batch_size, sequence_length, all_head_size)
-        Output: (batch_size, num_attention_heads, sequence_length, attention_head_size)
         """
         new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         x = x.view(*new_x_shape)
@@ -152,7 +162,7 @@ class BertSelfAttention(nn.Module):
         if is_cross_attention:
             key_layer = self.transpose_for_scores(self.key(encoder_hidden_states))
             value_layer = self.transpose_for_scores(self.value(encoder_hidden_states))
-            attention_mask = encoder_attention_mask # Use encoder's mask for cross-attention
+            attention_mask = encoder_attention_mask
         elif past_key_value is not None:
             key_layer = self.transpose_for_scores(self.key(hidden_states))
             value_layer = self.transpose_for_scores(self.value(hidden_states))
@@ -165,15 +175,20 @@ class BertSelfAttention(nn.Module):
         mixed_query_layer = self.query(hidden_states)
         query_layer = self.transpose_for_scores(mixed_query_layer)
 
-        past_key_value = (key_layer, value_layer) 
+        past_key_value = (key_layer, value_layer)
 
+        # Compute attention scores
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
+        # Add relative position embeddings if configured
         if (self.position_embedding_type == "relative_key" or self.position_embedding_type == "relative_key_query"):
             seq_length = hidden_states.size()[1]
             position_ids_l = torch.arange(seq_length, dtype=torch.long, device=hidden_states.device).view(-1, 1)
             position_ids_r = torch.arange(seq_length, dtype=torch.long, device=hidden_states.device).view(1, -1)
             distance = position_ids_l - position_ids_r
+            
+            # Clamp distance to valid range
+            distance = torch.clamp(distance, -self.max_position_embeddings + 1, self.max_position_embeddings - 1)
             positional_embedding = self.distance_embedding(distance + self.max_position_embeddings - 1)
             positional_embedding = positional_embedding.to(dtype=query_layer.dtype)
 
@@ -185,32 +200,35 @@ class BertSelfAttention(nn.Module):
                 relative_position_scores_key = torch.einsum("bhrd,lrd->bhlr", key_layer, positional_embedding)
                 attention_scores = attention_scores + relative_position_scores_query + relative_position_scores_key
 
+        # Scale attention scores
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
+        
+        # Apply attention mask
         if attention_mask is not None:
             attention_scores = attention_scores + attention_mask
 
-        attention_probs = nn.Softmax(dim=-1)(attention_scores)
-
+        # Compute attention probabilities
+        attention_probs = F.softmax(attention_scores, dim=-1)
         attention_probs_dropped = self.dropout(attention_probs)
 
+        # Apply head mask if provided
         if head_mask is not None:
             attention_probs_dropped = attention_probs_dropped * head_mask
 
+        # Compute context layer
         context_layer = torch.matmul(attention_probs_dropped, value_layer)
-
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
 
         outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
-        outputs = outputs + (past_key_value,) 
+        outputs = outputs + (past_key_value,)
 
         return outputs
 
-
 class BertSelfOutput(nn.Module):
     """
-    Output layer for self-attention. Applies a dense layer, dropout, and layer normalization.
+    Output layer for self-attention.
     """
     def __init__(self, config: BertConfig):
         super().__init__()
@@ -219,33 +237,20 @@ class BertSelfOutput(nn.Module):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states: torch.Tensor, input_tensor: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass for the self-attention output.
-        Args:
-            hidden_states: Output from the self-attention mechanism.
-            input_tensor: The original input to the self-attention block (for residual connection).
-        """
         hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
         hidden_states = self.LayerNorm(hidden_states + input_tensor)
         return hidden_states
 
-
 class BertAttention(nn.Module):
     """
-    Combines BertSelfAttention and BertSelfOutput to form a complete attention block.
+    Complete attention block combining self-attention and output layers.
     """
     def __init__(self, config: BertConfig, is_cross_attention: bool = False):
         super().__init__()
         self.self = BertSelfAttention(config, is_cross_attention)
         self.output = BertSelfOutput(config)
-        self.pruned_heads = set() 
-
-    def prune_heads(self, heads: set):
-        """Placeholder for pruning attention heads."""
-        if len(heads) == 0:
-            return
-        warnings.warn("`prune_heads` is not fully implemented for this example.")
+        self.pruned_heads = set()
 
     def forward(
         self,
@@ -257,9 +262,6 @@ class BertAttention(nn.Module):
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
         output_attentions: bool = False,
     ) -> Tuple[torch.Tensor, ...]:
-        """
-        Forward pass for the attention block.
-        """
         self_outputs = self.self(
             hidden_states,
             attention_mask,
@@ -270,15 +272,12 @@ class BertAttention(nn.Module):
             output_attentions,
         )
         attention_output = self.output(self_outputs[0], hidden_states)
-
-        outputs = (attention_output,) + self_outputs[1:] 
+        outputs = (attention_output,) + self_outputs[1:]
         return outputs
-
 
 class BertIntermediate(nn.Module):
     """
-    Intermediate (feed-forward) layer in a BERT Transformer block.
-    Applies a dense layer followed by an activation function.
+    Intermediate (feed-forward) layer.
     """
     def __init__(self, config: BertConfig):
         super().__init__()
@@ -289,18 +288,13 @@ class BertIntermediate(nn.Module):
             self.intermediate_act_fn = config.hidden_act
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass for the intermediate layer.
-        """
         hidden_states = self.dense(hidden_states)
         hidden_states = self.intermediate_act_fn(hidden_states)
         return hidden_states
 
-
 class BertOutput(nn.Module):
     """
-    Output layer for the feed-forward network in a BERT Transformer block.
-    Applies a dense layer, dropout, and layer normalization.
+    Output layer for feed-forward network.
     """
     def __init__(self, config: BertConfig):
         super().__init__()
@@ -309,90 +303,82 @@ class BertOutput(nn.Module):
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states: torch.Tensor, input_tensor: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass for the feed-forward output.
-        Args:
-            hidden_states: Output from the intermediate layer.
-            input_tensor: The input to the feed-forward block (for residual connection).
-        """
         hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
         hidden_states = self.LayerNorm(hidden_states + input_tensor)
         return hidden_states
 
-
 class BertLayer(nn.Module):
     """
-    A single Transformer layer, consisting of self-attention, cross-attention (optional),
-    and a feed-forward network. This is the core building block of the Q-Former's encoder.
+    A single Transformer layer with optional cross-attention.
     """
     def __init__(self, config: BertConfig, layer_num: int):
         super().__init__()
         self.config = config
-        self.chunk_size_feed_forward = getattr(config, "chunk_size_feed_forward", 0)
-        self.seq_len_dim = 1 
-        self.attention = BertAttention(config) 
+        self.chunk_size_feed_forward = getattr(config, "chunk_size_feed_forward", 0) 
+        self.seq_len_dim = 1
+        self.attention = BertAttention(config)
         self.layer_num = layer_num
 
-        if self.config.add_cross_attention and layer_num % self.config.cross_attention_freq == 0:
-            self.crossattention = BertAttention(
-                config, is_cross_attention=True 
-            )
-            self.has_cross_attention = True
+        # Improved cross-attention logic
+        if self.config.add_cross_attention:
+            if self.config.cross_attention_freq == 1 or layer_num % self.config.cross_attention_freq == 0:
+                self.crossattention = BertAttention(config, is_cross_attention=True)
+                self.has_cross_attention = True
+            else:
+                self.has_cross_attention = False
         else:
             self.has_cross_attention = False
 
-        self.intermediate = BertIntermediate(config) 
+        self.intermediate = BertIntermediate(config)
         self.output = BertOutput(config)
 
-        self.intermediate_query = BertIntermediate(config)
-        self.output_query = BertOutput(config)
+        # Separate feed-forward layers for query processing
+        if self.has_cross_attention:
+            self.intermediate_query = BertIntermediate(config)
+            self.output_query = BertOutput(config)
 
     def forward(
         self,
-        hidden_states: torch.Tensor, 
-        attention_mask: Optional[torch.Tensor] = None, 
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
         head_mask: Optional[torch.Tensor] = None,
         encoder_hidden_states: Optional[torch.Tensor] = None,
-        encoder_attention_mask: Optional[torch.Tensor] = None, 
+        encoder_attention_mask: Optional[torch.Tensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
         output_attentions: bool = False,
-        query_length: int = 0, 
+        query_length: int = 0,
     ) -> Tuple[torch.Tensor, ...]:
-        """
-        Forward pass for a single BERT layer within the Q-Former.
-        """
-        self_attn_past_key_value = (
-            past_key_value[:2] if past_key_value is not None else None
-        )
+        # Self-attention
+        self_attn_past_key_value = past_key_value[:2] if past_key_value is not None else None
         self_attention_outputs = self.attention(
-            hidden_states, 
-            attention_mask, 
+            hidden_states,
+            attention_mask,
             head_mask,
             output_attentions=output_attentions,
             past_key_value=self_attn_past_key_value,
         )
-        attention_output = self_attention_outputs[0] 
-        outputs = self_attention_outputs[1:-1] 
+        attention_output = self_attention_outputs[0]
+        outputs = self_attention_outputs[1:-1]
+        present_key_value = self_attention_outputs[-1]
 
-        present_key_value = self_attention_outputs[-1] 
-
+        # Cross-attention
         if self.has_cross_attention:
-            assert (
-                encoder_hidden_states is not None
-            ), "encoder_hidden_states must be given for cross-attention layers when has_cross_attention is True"
+            if encoder_hidden_states is None:
+                raise ValueError("encoder_hidden_states must be given for cross-attention layers")
 
             cross_attention_outputs = self.crossattention(
-                attention_output, 
+                attention_output,
                 attention_mask,
                 head_mask,
-                encoder_hidden_states, 
-                encoder_attention_mask, 
+                encoder_hidden_states,
+                encoder_attention_mask,
                 output_attentions=output_attentions,
             )
-            cross_attention_output = cross_attention_outputs[0] 
-            outputs = (outputs + cross_attention_outputs[1:-1]) 
+            cross_attention_output = cross_attention_outputs[0]
+            outputs = outputs + cross_attention_outputs[1:-1]
 
+            # Feed-forward for queries after cross-attention
             layer_output = apply_chunking_to_forward(
                 self.feed_forward_chunk_query,
                 self.chunk_size_feed_forward,
@@ -400,6 +386,7 @@ class BertLayer(nn.Module):
                 cross_attention_output,
             )
         else:
+            # Standard feed-forward
             layer_output = apply_chunking_to_forward(
                 self.feed_forward_chunk,
                 self.chunk_size_feed_forward,
@@ -407,101 +394,88 @@ class BertLayer(nn.Module):
                 attention_output,
             )
 
-        outputs = (layer_output,) + outputs
-        outputs = outputs + (present_key_value,)
-
+        outputs = (layer_output,) + outputs + (present_key_value,)
         return outputs
 
     def feed_forward_chunk(self, attention_output: torch.Tensor) -> torch.Tensor:
-        """Standard feed-forward chunk (used if no cross-attention or for non-query tokens)."""
+        """Standard feed-forward chunk."""
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
         return layer_output
 
     def feed_forward_chunk_query(self, attention_output: torch.Tensor) -> torch.Tensor:
-        """Feed-forward chunk specifically for query tokens after cross-attention."""
+        """Feed-forward chunk for query tokens after cross-attention."""
         intermediate_output = self.intermediate_query(attention_output)
         layer_output = self.output_query(intermediate_output, attention_output)
         return layer_output
 
-
 class BertEncoder(nn.Module):
     """
-    The BERT-like Encoder that forms the backbone of the Q-Former.
-    It stacks multiple `BertLayer` modules.
+    Multi-layer BERT encoder for the Q-Former.
     """
     def __init__(self, config: BertConfig):
         super().__init__()
         self.config = config
-        self.layer = nn.ModuleList(
-            [BertLayer(config, i) for i in range(config.num_hidden_layers)]
-        )
+        self.layer = nn.ModuleList([BertLayer(config, i) for i in range(config.num_hidden_layers)])
 
     def get_extended_attention_mask(
         self,
         attention_mask: torch.Tensor,
         input_shape: Tuple[int, ...],
         device: torch.device,
-        is_decoder: bool,
-        has_query: bool = False, 
+        is_decoder: bool = False,
     ) -> torch.Tensor:
         """
-        Prepares and extends an attention mask for broadcasting across attention heads.
-        Converts a (batch_size, seq_len) mask to (batch_size, 1, 1, seq_len)
-        and applies a large negative value to masked positions.
+        Prepares attention mask for broadcasting.
         """
         if attention_mask.dim() == 3:
             extended_attention_mask = attention_mask[:, None, :, :]
         elif attention_mask.dim() == 2:
             extended_attention_mask = attention_mask[:, None, None, :]
-            extended_attention_mask = extended_attention_mask.to(dtype=self.layer[0].attention.self.query.weight.dtype)
-            extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0 
-            extended_attention_mask = extended_attention_mask.to(device)
         else:
-            raise ValueError(
-                f"Wrong shape for input_shape ({input_shape}) or attention_mask ({attention_mask.shape})"
-            )
+            raise ValueError(f"Wrong shape for attention_mask: {attention_mask.shape}")
+
+        # Convert to float and apply large negative values to masked positions
+        extended_attention_mask = extended_attention_mask.to(dtype=torch.float32)
+        extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
+        extended_attention_mask = extended_attention_mask.to(device=device)
+        
         return extended_attention_mask
 
     def forward(
         self,
-        hidden_states: torch.Tensor, # Input (query embeddings for Q-Former) (B, N_q, D)
-        attention_mask: Optional[torch.Tensor] = None, # Self-attention mask for queries (B, N_q)
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
         head_mask: Optional[torch.Tensor] = None,
-        encoder_hidden_states: Optional[torch.Tensor] = None, # Image features (B, N_v, D_v)
-        encoder_attention_mask: Optional[torch.Tensor] = None, # Mask for image features (B, N_v)
+        encoder_hidden_states: Optional[torch.Tensor] = None,
+        encoder_attention_mask: Optional[torch.Tensor] = None,
         past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None,
         use_cache: Optional[bool] = None,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
         return_dict: bool = True,
-        query_length: int = 0, # The length of the query sequence (N_q)
+        query_length: int = 0,
     ) -> BaseModelOutputWithPastAndCrossAttentions:
-        """
-        Forward pass for the BERT Encoder.
-        """
         all_hidden_states = () if output_hidden_states else None
         all_self_attentions = () if output_attentions else None
-        all_cross_attentions = (
-            () if output_attentions and self.config.add_cross_attention else None
-        )
-
+        all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
         next_decoder_cache = () if use_cache else None
 
+        # Prepare attention masks
         extended_attention_mask = None
         if attention_mask is not None:
             extended_attention_mask = self.get_extended_attention_mask(
-                attention_mask, hidden_states.shape[:-1], hidden_states.device, is_decoder=False
+                attention_mask, hidden_states.shape[:-1], hidden_states.device
             )
 
         extended_encoder_attention_mask = None
         if encoder_hidden_states is not None and encoder_attention_mask is not None:
             extended_encoder_attention_mask = self.get_extended_attention_mask(
-                encoder_attention_mask, encoder_hidden_states.shape[:-1], encoder_hidden_states.device, is_decoder=False
+                encoder_attention_mask, encoder_hidden_states.shape[:-1], encoder_hidden_states.device
             )
 
-        for i in range(self.config.num_hidden_layers):
-            layer_module = self.layer[i]
+        # Process each layer
+        for i, layer_module in enumerate(self.layer):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
@@ -510,16 +484,14 @@ class BertEncoder(nn.Module):
 
             if getattr(self.config, "gradient_checkpointing", False) and self.training:
                 if use_cache:
-                    logger.warn(
+                    logger.warning(
                         "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
                     )
                     use_cache = False
 
                 def create_custom_forward(module):
                     def custom_forward(*inputs):
-                        return module(
-                            *inputs, past_key_value, output_attentions, query_length
-                        )
+                        return module(*inputs, past_key_value, output_attentions, query_length)
                     return custom_forward
 
                 layer_outputs = torch.utils.checkpoint.checkpoint(
@@ -542,7 +514,7 @@ class BertEncoder(nn.Module):
                     query_length,
                 )
 
-            hidden_states = layer_outputs[0] 
+            hidden_states = layer_outputs[0]
             if use_cache:
                 next_decoder_cache += (layer_outputs[-1],)
             if output_attentions:
@@ -550,22 +522,20 @@ class BertEncoder(nn.Module):
                 if self.config.add_cross_attention and layer_module.has_cross_attention:
                     all_cross_attentions = all_cross_attentions + (layer_outputs[2],)
 
-
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
 
         if not return_dict:
             return tuple(
-                v
-                for v in [
+                v for v in [
                     hidden_states,
                     next_decoder_cache,
                     all_hidden_states,
                     all_self_attentions,
                     all_cross_attentions,
-                ]
-                if v is not None
+                ] if v is not None
             )
+        
         return BaseModelOutputWithPastAndCrossAttentions(
             last_hidden_state=hidden_states,
             past_key_values=next_decoder_cache,
@@ -576,11 +546,7 @@ class BertEncoder(nn.Module):
 
 class Qformer(nn.Module):
     """
-    The Querying Transformer (Q-Former) module.
-    It distills information from high-dimensional image features into a fixed set of
-    learnable query embeddings. This is achieved using self-attention among the queries
-    and cross-attention between the queries and the image features.
-    The output query embeddings are then fed to a language model 
+    The Querying Transformer (Q-Former) module with improved device handling.
     """
     def __init__(self, config: BertConfig):
         super().__init__()
@@ -590,14 +556,10 @@ class Qformer(nn.Module):
         self.query_tokens.data.normal_(mean=0.0, std=config.initializer_range)
 
         self.bert_encoder = BertEncoder(config)
-
         self._init_weights()
 
     def _init_weights(self):
-        """
-        Initializes the weights of the Q-Former's sub-modules (e.g., linear layers, LayerNorms).
-        This follows a standard initialization strategy similar to Hugging Face's PreTrainedModel.
-        """
+        """Initialize weights following standard practices."""
         for m in self.modules():
             if isinstance(m, (nn.Linear, nn.Embedding)):
                 m.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
@@ -609,49 +571,47 @@ class Qformer(nn.Module):
 
     def forward(
         self,
-        image_features: torch.Tensor, 
-        image_attention_mask: Optional[torch.Tensor] = None, 
+        image_features: torch.Tensor,
+        image_attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
-        Forward pass of the Q-Former.
-        Args:
-            image_features: A tensor representing the visual features from the image encoder.
-                            Expected shape: (batch_size, feature_dim) for a global feature,
-                            or (batch_size, num_visual_tokens, feature_dim) for patch-level features.
-            image_attention_mask: An optional mask for the image features, shape (batch_size, num_visual_tokens).
-                                  Defaults to all ones if not provided, meaning all visual tokens are attended to.
-        Returns:
-            A tensor of shape (batch_size, num_query_tokens, hidden_size) representing
-            the distilled query embeddings, which can then be fed to a language model.
+        Forward pass with improved device and shape handling.
         """
         batch_size = image_features.shape[0]
         device = image_features.device
 
-        query_tokens = self.query_tokens.expand(batch_size, -1, -1) # (batch_size, num_query_tokens, hidden_size)
+        # Ensure query tokens are on the correct device
+        query_tokens = self.query_tokens.expand(batch_size, -1, -1).to(device)
+        query_length = query_tokens.shape[1]
 
-        query_length = query_tokens.shape[1] 
+        # Create query attention mask
+        query_attention_mask = torch.ones(
+            query_tokens.shape[:-1], dtype=torch.long, device=device
+        )
 
-        query_attention_mask = torch.ones(query_tokens.shape[:-1], dtype=torch.long, device=device)
-
+        # Handle image features shape
         if image_features.dim() == 2:
-            encoder_hidden_states = image_features.unsqueeze(1) 
-        else: 
+            # Single global feature per image: (batch_size, feature_dim) -> (batch_size, 1, feature_dim)
+            encoder_hidden_states = image_features.unsqueeze(1)
+        else:
+            # Multiple features per image: (batch_size, num_features, feature_dim)
             encoder_hidden_states = image_features
 
+        # Create image attention mask if not provided
         if image_attention_mask is None:
             image_attention_mask = torch.ones(
                 encoder_hidden_states.shape[:-1], dtype=torch.long, device=device
             )
 
+        # Process through encoder
         encoder_outputs = self.bert_encoder(
             hidden_states=query_tokens,
-            attention_mask=query_attention_mask, 
-            encoder_hidden_states=encoder_hidden_states, 
-            encoder_attention_mask=image_attention_mask, 
+            attention_mask=query_attention_mask,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_attention_mask=image_attention_mask,
             return_dict=True,
-            query_length=query_length 
+            query_length=query_length
         )
 
-
-        output_query_embeddings = encoder_outputs['last_hidden_state']
-        return output_query_embeddings
+        # Return query embeddings
+        return encoder_outputs.last_hidden_state
