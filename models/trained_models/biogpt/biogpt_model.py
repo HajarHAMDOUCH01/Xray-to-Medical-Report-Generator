@@ -130,11 +130,28 @@ class XrayReportGenerator(nn.Module):
                 biogpt_decoder_kwargs = {
                     "input_embeds":decoder_input_embeddings,
                     "attention_mask": decoder_attention_mask,
-                    "labels": decoder_labels,
+                    # "labels": decoder_labels,
                     "return_dict": True
                 }
-                outputs = self.biogpt_decoder(**biogpt_decoder_kwargs) 
-                return outputs.loss
+                # outputs = self.biogpt_decoder(**biogpt_decoder_kwargs) 
+                # return outputs.loss
+                biogpt_decoder_kwargs = {
+                    "input_embeds": decoder_input_embeddings,
+                    "attention_mask": decoder_attention_mask,
+                    "return_dict": True
+                }
+
+                outputs = self.biogpt_decoder(**biogpt_decoder_kwargs)  # no "labels"
+
+                logits = outputs.logits  
+
+                shift_logits = logits[:, :-1, :].contiguous()
+                shift_labels = decoder_labels[:, 1:].contiguous()
+
+                loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
+                loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+
+                return loss
             else:
                 input_embeddings_list = [query_embeddings]
                 input_attention_mask_list = [torch.ones(
