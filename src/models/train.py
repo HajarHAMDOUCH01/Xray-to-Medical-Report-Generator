@@ -214,7 +214,6 @@ def train_model():
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
 
-            # FIXED: Call model with correct parameter names
             loss = model(
                 image_features=image_embedding,  # Match parameter name in XrayReportGenerator
                 input_ids=input_ids,
