@@ -40,7 +40,7 @@ class XrayReportGenerator(nn.Module):
             print("No fine-tuned BioGPT weights file provided, using default pre-trained BioGPT.")
         
         ################################################
-        biogpt_hidden_size = self.biogpt_decoder.config.cross_attention_hidden_size
+        biogpt_hidden_size = self.biogpt_decoder.config.hidden_size
         if qformer_config.hidden_size != biogpt_hidden_size:
             self.qformer_output_to_biogpt_input_projection = nn.Linear(
                 qformer_config.hidden_size, biogpt_hidden_size
@@ -102,7 +102,6 @@ def forward(
     image_features = self._prepare_image_features(image_features)
     query_embeddings = self.qformer(image_features)
 
-    ################""""
     if self.qformer_output_to_biogpt_input_projection:
         query_embeddings = self.qformer_output_to_biogpt_input_projection(query_embeddings)
         if is_training:
