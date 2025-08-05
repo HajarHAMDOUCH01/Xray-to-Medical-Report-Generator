@@ -135,11 +135,6 @@ class XrayReportGenerator(nn.Module):
                 }
                 # outputs = self.biogpt_decoder(**biogpt_decoder_kwargs) 
                 # return outputs.loss
-                biogpt_decoder_kwargs = {
-                    "input_embeds": decoder_input_embeddings,
-                    "attention_mask": decoder_attention_mask,
-                    "return_dict": True
-                }
 
                 outputs = self.biogpt_decoder(**biogpt_decoder_kwargs)  # no "labels"
 
