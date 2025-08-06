@@ -20,15 +20,16 @@ class BiomedCLIPEncoder(nn.Module):
                  device=None):  
         super().__init__()  
         
-        # FIX: Use provided device or auto-detect
         self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         self.model, _, self.preprocess = open_clip.create_model_and_transforms(model_name)
         
         if weights_path:
             self.model.load_state_dict(torch.load(weights_path, map_location='cpu', weights_only=True))
-        
-        # FIX: Move model to device
+            print(f"Vision Tranformer BioMedClip weights loaded from {weights_path}")
+        else:
+            print(f"Vision Tranformer BioMedClip weights not provided model loaded with default weights.")
+
         self.model = self.model.to(self.device)
         self.model.eval()
         
@@ -38,7 +39,6 @@ class BiomedCLIPEncoder(nn.Module):
         image = Image.open(image_path).convert("RGB")
         image_input = self.preprocess(image).unsqueeze(0)
         
-        # FIX: Use self.device instead of detecting from model
         image_input = image_input.to(self.device)
         
         with torch.no_grad():

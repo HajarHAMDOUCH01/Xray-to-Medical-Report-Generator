@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class ModelOutput:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
-        # Enable both dictionary and attribute access
+        # both dictionary and attribute access
         for key, value in kwargs.items():
             setattr(self, key, value)
     
@@ -33,15 +33,18 @@ class ModelOutput:
 class BaseModelOutputWithPastAndCrossAttentions(ModelOutput):
     def __init__(self, last_hidden_state: torch.Tensor, past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None, hidden_states: Optional[Tuple[torch.Tensor]] = None, attentions: Optional[Tuple[torch.Tensor]] = None, cross_attentions: Optional[Tuple[torch.Tensor]] = None):
         super().__init__(
-            last_hidden_state=last_hidden_state,
-            past_key_values=past_key_values,
-            hidden_states=hidden_states,
-            attentions=attentions,
-            cross_attentions=cross_attentions,
+            last_hidden_state=last_hidden_state, # this is the main output : embedding of query tokens 
+            past_key_values=past_key_values, # caching K and V matrices of previous tokens
+            hidden_states=hidden_states, # output of each layer
+            attentions=attentions, # represents how much the Qformer focused on each image patch
+            cross_attentions=cross_attentions, # how query tokens attend to encoder inputs
         )
 
 def apply_chunking_to_forward(
-    forward_fn, chunk_size, seq_len_dim, *input_tensors
+    forward_fn, # the function that will be appield to each chunk
+    chunk_size, 
+    seq_len_dim, # the dimension that the chunking will work on
+    *input_tensors # the tensors that will be chunked and passed to forward_fn
 ):
     """
     Helper function to apply a forward function to chunks of input tensors.
@@ -100,7 +103,7 @@ class BertConfig:
         self.max_position_embeddings = max_position_embeddings
         self.position_embedding_type = position_embedding_type
         
-        # Optional parameters (may not be used in Q-Former)
+        # Optional parameters 
         self.vocab_size = 30522
         self.pad_token_id = 0
 
@@ -322,7 +325,6 @@ class BertLayer(nn.Module):
         self.attention = BertAttention(config)
         self.layer_num = layer_num
 
-        # Improved cross-attention logic
         if self.config.add_cross_attention:
             if self.config.cross_attention_freq == 1 or layer_num % self.config.cross_attention_freq == 0:
                 self.crossattention = BertAttention(config, is_cross_attention=True)
@@ -335,7 +337,6 @@ class BertLayer(nn.Module):
         self.intermediate = BertIntermediate(config)
         self.output = BertOutput(config)
 
-        # Separate feed-forward layers for query processing
         if self.has_cross_attention:
             self.intermediate_query = BertIntermediate(config)
             self.output_query = BertOutput(config)
@@ -437,7 +438,6 @@ class BertEncoder(nn.Module):
         else:
             raise ValueError(f"Wrong shape for attention_mask: {attention_mask.shape}")
 
-        # Convert to float and apply large negative values to masked positions
         extended_attention_mask = extended_attention_mask.to(dtype=torch.float32)
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
         extended_attention_mask = extended_attention_mask.to(device=device)

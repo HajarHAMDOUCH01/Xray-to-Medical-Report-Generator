@@ -80,7 +80,7 @@ class XrayReportGenerator(nn.Module):
         self,
         # args for inference
         image_path: Optional[str] = None, 
-        prompt_text: Optional[str] = None,
+        prompt_text: Optional[str] = None, # it's otptional
         max_new_tokens: int = 50,
         num_beams: int = 1,
         do_sample: bool = False,
@@ -91,6 +91,7 @@ class XrayReportGenerator(nn.Module):
         input_ids: Optional[torch.Tensor] = None, 
         attention_mask: Optional[torch.Tensor] = None,
         ):
+
         is_training = image_features is not None and input_ids is not None and attention_mask is not None
 
         #Get image features
@@ -157,7 +158,6 @@ class XrayReportGenerator(nn.Module):
                         torch.ones_like(prompt_token_ids)
                     ], dim=1)
 
-                # Enhanced generation
                 generation_kwargs = {
                     "inputs_embeds": input_embeddings,
                     "attention_mask": input_attention_mask,
