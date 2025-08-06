@@ -9,9 +9,8 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# Now import your custom modules
-from src.models.trained_models.biogpt.biogpt_model import XrayReportGenerator
-from src.models.trained_models.Q_former.q_former import BertConfig
+from models.trained_models.biogpt.biogpt_model import XrayReportGenerator
+from models.trained_models.Q_former.q_former import BertConfig
 from configs.constants import MODEL_NAMES, MODEL_WEIGHTS
 
 import logging
