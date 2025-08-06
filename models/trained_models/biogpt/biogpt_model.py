@@ -136,23 +136,18 @@ class XrayReportGenerator(nn.Module):
                 outputs = self.biogpt_decoder(**biogpt_decoder_kwargs) 
                 return outputs.loss
             else:
-                # Initialize with query embeddings
+                # Base embeddings
                 input_embeddings = query_embeddings
-                input_attention_mask = torch.ones(
-                    query_embeddings.shape[0], 
-                    query_embeddings.shape[1], 
-                    dtype=torch.long, 
-                    device=query_embeddings.device
-                )
-
+                input_attention_mask = torch.ones_like(input_embeddings[:,:,0], dtype=torch.long)
+                
                 # Add prompt if provided
                 if prompt_text:
                     prompt_token_ids = self.tokenizer(
                         prompt_text,
                         return_tensors="pt",
-                        add_special_tokens=True,  # Changed from False to include special tokens
-                        padding='max_length',     # Ensure consistent length
-                        max_length=32             # Limit prompt length
+                        add_special_tokens=True,
+                        max_length=32,
+                        truncation=True
                     ).input_ids.to(self.device)
                     
                     text_embeddings = self.biogpt_decoder.get_input_embeddings()(prompt_token_ids)
@@ -162,47 +157,22 @@ class XrayReportGenerator(nn.Module):
                         torch.ones_like(prompt_token_ids)
                     ], dim=1)
 
-                # Debug prints
-                print("\nDebug Shapes:")
-                print("Query embeddings:", query_embeddings.shape)
-                print("Input embeddings:", input_embeddings.shape)
-                print("Attention mask:", input_attention_mask.shape)
-                print("First 5 elements of input_embeddings:", input_embeddings[0, :5])
-                print("First 5 elements of attention_mask:", input_attention_mask[0, :5])
-
-                # Enhanced generation parameters
+                # Enhanced generation
                 generation_kwargs = {
                     "inputs_embeds": input_embeddings,
                     "attention_mask": input_attention_mask,
-                    "max_new_tokens": max(max_new_tokens, 50),  # Ensure minimum length
-                    "num_beams": max(num_beams, 3),             # Ensure minimum beams
-                    "do_sample": do_sample,
+                    "max_new_tokens": 256,
+                    "min_length": 20,
+                    "num_beams": 5,
+                    "temperature": 1.0,
+                    "top_p": 0.95,
+                    "do_sample": True,
+                    "repetition_penalty": 1.5,
                     "eos_token_id": self.eos_token_id,
                     "pad_token_id": self.tokenizer.pad_token_id,
-                    "early_stopping": True,
-                    "no_repeat_ngram_size": 2
+                    "length_penalty": 2.0,
+                    "no_repeat_ngram_size": 3
                 }
-                
-                if do_sample:
-                    generation_kwargs.update({
-                        "temperature": 0.7,
-                        "top_k": top_k if top_k is not None else 50,
-                        "top_p": top_p if top_p is not None else 0.9,
-                    })
 
-                # Generate output
-                generated_output = self.biogpt_decoder.generate(**generation_kwargs)
-                
-                # Debug generation output
-                print("\nGeneration Debug:")
-                print("Generated output shape:", generated_output.shape)
-                print("First 10 tokens:", generated_output[0, :10] if generated_output.ndim == 2 else generated_output[:10])
-                
-                # Slice and decode
-                input_length = input_embeddings.shape[1]
-                generated_tokens = generated_output[:, input_length:] if generated_output.ndim == 2 else generated_output[input_length:]
-                generated_report = self.tokenizer.decode(generated_tokens[0], skip_special_tokens=True)
-
-                print("\nFinal Output:")
-                print(generated_report)
-                return generated_report
+                outputs = self.biogpt_decoder.generate(**generation_kwargs)
+                return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
