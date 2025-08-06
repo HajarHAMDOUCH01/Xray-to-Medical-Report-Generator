@@ -166,9 +166,17 @@ To test the model and generate reports locally, follow these steps:
     After downloading the weights, update their paths in the `configs.constants.py` file within this repository.
 
 4.  **Run Inference:**
-    Execute the prediction script to generate a medical report:
+    Example prediction command :
+    all arguments are in predict.py
     ```bash
-    python src/models/predict.py
+      python predict.py \
+    --image_path xray.jpg \
+    --model_path final_model.pth \
+    --prompt_text "prompt text" \
+    --max_length 256 \
+    --num_beams 5 \
+    --do_sample \
+    --top_p 0.95
     ```
 ---
 
