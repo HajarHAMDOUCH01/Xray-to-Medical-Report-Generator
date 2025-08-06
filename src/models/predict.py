@@ -56,7 +56,7 @@ def load_model(model_path, device):
     model.eval()
     return model
 
-def generate_report(model, image_path, device, generation_params):
+def generate_report(model, image_path, device, generation_params, prompt_text: str):
     """Generate radiology report for a given image"""
     try:
         with torch.no_grad():
@@ -66,6 +66,7 @@ def generate_report(model, image_path, device, generation_params):
             # Generate the report
             generated_report = model(
                 image_path=image_path,
+                prompt_text = prompt_text,
                 max_new_tokens=generation_params['max_length'],
                 num_beams=generation_params['num_beams'],
                 do_sample=generation_params['do_sample'],
