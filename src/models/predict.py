@@ -98,6 +98,8 @@ def main():
     parser.add_argument('--do_sample', action='store_true', help='Use sampling')
     parser.add_argument('--top_k', type=int, default=50, help='Top-k sampling')
     parser.add_argument('--top_p', type=float, default=0.9, help='Top-p sampling')
+    parser.add_argument('--prompt_text', type=str, default="",
+                   help='Optional prompt text to guide generation')
     
     args = parser.parse_args()
     
@@ -129,7 +131,7 @@ def main():
     
     # Generate report
     logger.info(f"Generating report for image: {args.image_path}")
-    report = generate_report(model, args.image_path, device, generation_params)
+    report = generate_report(model, args.image_path, device, generation_params, args.prompt_text)
     
     if report is None:
         logger.error("Failed to generate report")
