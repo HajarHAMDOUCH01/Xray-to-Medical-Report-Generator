@@ -14,11 +14,11 @@ if project_path not in sys.path:
 
 from configs.constants import MODEL_NAMES, MODEL_WEIGHTS
 
-class BiomedCLIPEncoder(nn.Module):  # FIX: Inherit from nn.Module
+class BiomedCLIPEncoder(nn.Module):  
     def __init__(self, model_name=MODEL_NAMES['biomedclip'],
                  weights_path=MODEL_WEIGHTS['biomedclip'],
-                 device=None):  # FIX: Accept device parameter
-        super().__init__()  # FIX: Call parent constructor
+                 device=None):  
+        super().__init__()  
         
         # FIX: Use provided device or auto-detect
         self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
