@@ -1,0 +1,51 @@
+{
+  "model_type": "xray_report_generator",
+  "architectures": ["XrayReportGenerator"],
+  "auto_map": {
+    "AutoModel": "model.XrayReportGenerator",
+    "AutoConfig": "model.XrayReportGeneratorConfig"
+  },
+  "biomedclip_config": {
+    "model_name": "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
+    "feature_dim": 512,
+    "checkpoint_file": "biomedclip_finetuned.pth"
+  },
+  "qformer_config": {
+    "hidden_size": 768,
+    "num_hidden_layers": 6,
+    "num_attention_heads": 12,
+    "intermediate_size": 3072,
+    "hidden_act": "gelu",
+    "hidden_dropout_prob": 0.1,
+    "attention_probs_dropout_prob": 0.1,
+    "initializer_range": 0.02,
+    "layer_norm_eps": 1e-12,
+    "add_cross_attention": true,
+    "cross_attention_freq": 1,
+    "encoder_width": 512,
+    "num_query_tokens": 32,
+    "gradient_checkpointing": false,
+    "max_position_embeddings": 1024,
+    "position_embedding_type": "absolute"
+  },
+  "biogpt_config": {
+    "model_name": "microsoft/biogpt",
+    "checkpoint_file": "biogpt_finetuned.pth"
+  },
+  "projection_layer": {
+    "enabled": true,
+    "input_size": 768,
+    "output_size": 1024
+  },
+  "training_config": {
+    "max_seq_length": 256,
+    "biomedclip_encoder_width": 512
+  },
+  "checkpoint_files": {
+    "final_model": "final_model.pth",
+    "biomedclip": "biomedclip_finetuned.pth",
+    "biogpt": "biogpt_finetuned.pth"
+  },
+  "torch_dtype": "float32",
+  "transformers_version": "4.21.0"
+}

@@ -215,7 +215,7 @@ def train_model():
             attention_mask = batch["attention_mask"].to(device)
 
             loss = model(
-                image_features=image_embedding,  # Match parameter name in XrayReportGenerator
+                image_features=image_embedding,  
                 input_ids=input_ids,
                 attention_mask=attention_mask
             )
