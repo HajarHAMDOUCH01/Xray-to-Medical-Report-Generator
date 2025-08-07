@@ -196,6 +196,10 @@ class XrayReportGenerator(PreTrainedModel):
             # Now it's safe to use the custom tokenizer
             model.tokenizer = custom_tokenizer
             print("Custom tokenizer loaded successfully.")
+            print("EOS token:", model.tokenizer.eos_token)
+            print("EOS token id:", model.tokenizer.eos_token_id)
+            print("Special tokens:", model.tokenizer.special_tokens_map)
+
             
             # Update EOS token ID with custom tokenizer
             model.eos_token_id = model.tokenizer.eos_token_id
