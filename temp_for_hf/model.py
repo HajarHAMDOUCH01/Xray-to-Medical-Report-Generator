@@ -579,20 +579,7 @@ class XrayReportGenerator(PreTrainedModel):
         biomedclip_file = None
         biogpt_file = None
         
-        try:
-            final_model_file = cached_file(
-                pretrained_model_name_or_path,
-                checkpoint_files["final_model"],
-                cache_dir=cache_dir,
-                force_download=force_download,
-                local_files_only=local_files_only,
-                token=token,
-                revision=revision
-            )
-            logger.info(f"Final model file found: {final_model_file}")
-        except Exception as e:
-            logger.warning(f"Final model file not found: {e}")
-        
+        # 1. Try to load individual component weights first
         try:
             biomedclip_file = cached_file(
                 pretrained_model_name_or_path,
@@ -621,10 +608,24 @@ class XrayReportGenerator(PreTrainedModel):
         except Exception as e:
             logger.warning(f"BioGPT file not found: {e}")
         
-        # Load individual component weights FIRST (before final model)
+        try:
+            final_model_file = cached_file(
+                pretrained_model_name_or_path,
+                checkpoint_files["final_model"],
+                cache_dir=cache_dir,
+                force_download=force_download,
+                local_files_only=local_files_only,
+                token=token,
+                revision=revision
+            )
+            logger.info(f"Final model file found: {final_model_file}")
+        except Exception as e:
+            logger.warning(f"Final model file not found: {e}")
+        
+        # Load weights in the correct order
         components_loaded = False
         
-        # 1. Load BiomedCLIP weights
+        # 2. Load BiomedCLIP weights if available
         if biomedclip_file:
             try:
                 logger.info(f"Loading BiomedCLIP weights from {biomedclip_file}")
@@ -636,16 +637,16 @@ class XrayReportGenerator(PreTrainedModel):
                 
                 missing_keys, unexpected_keys = model.biomedclip_encoder.model.load_state_dict(biomedclip_state, strict=False)
                 if missing_keys:
-                    logger.warning(f"Missing keys when loading BiomedCLIP: {missing_keys}")
+                    logger.warning(f"Missing keys when loading BiomedCLIP: {missing_keys[:5]}...")
                 if unexpected_keys:
-                    logger.warning(f"Unexpected keys when loading BiomedCLIP: {unexpected_keys}")
+                    logger.warning(f"Unexpected keys when loading BiomedCLIP: {unexpected_keys[:5]}...")
                     
                 logger.info("✓ BiomedCLIP fine-tuned weights loaded successfully.")
                 components_loaded = True
             except Exception as e:
                 logger.warning(f"Could not load BiomedCLIP weights: {e}. Using default weights.")
         
-        # 2. Load BioGPT weights
+        # 3. Load BioGPT weights if available
         if biogpt_file:
             try:
                 logger.info(f"Loading BioGPT weights from {biogpt_file}")
@@ -657,16 +658,16 @@ class XrayReportGenerator(PreTrainedModel):
                 
                 missing_keys, unexpected_keys = model.biogpt_decoder.load_state_dict(biogpt_state, strict=False)
                 if missing_keys:
-                    logger.warning(f"Missing keys when loading BioGPT: {missing_keys}")
+                    logger.warning(f"Missing keys when loading BioGPT: {missing_keys[:5]}...")
                 if unexpected_keys:
-                    logger.warning(f"Unexpected keys when loading BioGPT: {unexpected_keys}")
+                    logger.warning(f"Unexpected keys when loading BioGPT: {unexpected_keys[:5]}...")
                     
                 logger.info("✓ BioGPT fine-tuned weights loaded successfully.")
                 components_loaded = True
             except Exception as e:
                 logger.warning(f"Could not load BioGPT weights: {e}. Using default weights.")
         
-        # 3. Load final model state (this will override Q-Former and projection layer weights)
+        # 4. Load final model state (Q-Former and projection layer weights only)
         if final_model_file:
             try:
                 logger.info(f"Loading final model weights from {final_model_file}")
@@ -677,41 +678,38 @@ class XrayReportGenerator(PreTrainedModel):
                     state_dict = {key.replace('module.', ''): value for key, value in state_dict.items()}
                 
                 # Only load Q-Former and projection layer weights from final model
-                # Keep the individually loaded BiomedCLIP and BioGPT weights
+                # Exclude BiomedCLIP and BioGPT weights to avoid overriding the fine-tuned ones
                 final_model_keys_to_load = {}
                 for key, value in state_dict.items():
-                    if key.startswith('qformer') or key.startswith('qformer_output_to_biogpt_input_projection'):
-                        final_model_keys_to_load[key] = value
-                    elif not components_loaded:
-                        # If individual components weren't loaded, load everything
+                    if (key.startswith('qformer') or 
+                        key.startswith('qformer_output_to_biogpt_input_projection')):
                         final_model_keys_to_load[key] = value
                 
-                missing_keys, unexpected_keys = model.load_state_dict(final_model_keys_to_load, strict=False)
-                if missing_keys:
-                    logger.warning(f"Missing keys when loading final model: {missing_keys}")
-                if unexpected_keys:
-                    logger.warning(f"Unexpected keys when loading final model: {unexpected_keys}")
-                    
-                logger.info("✓ Final model weights (Q-Former + projection) loaded successfully.")
+                if final_model_keys_to_load:
+                    missing_keys, unexpected_keys = model.load_state_dict(final_model_keys_to_load, strict=False)
+                    if missing_keys:
+                        logger.warning(f"Missing keys when loading final model: {missing_keys[:5]}...")
+                    if unexpected_keys:
+                        logger.warning(f"Unexpected keys when loading final model: {unexpected_keys[:5]}...")
+                        
+                    logger.info("✓ Final model weights (Q-Former + projection) loaded successfully.")
+                else:
+                    logger.warning("No Q-Former or projection weights found in final model file.")
                 
             except Exception as e:
                 logger.warning(f"Could not load final model weights: {e}")
         
         # Log the loading summary
+        logger.info("=" * 60)
+        logger.info("MODEL LOADING SUMMARY:")
         if components_loaded:
-            logger.info("=" * 60)
-            logger.info("MODEL LOADING SUMMARY:")
-            logger.info("✓ BiomedCLIP: Fine-tuned weights loaded")
-            logger.info("✓ BioGPT: Fine-tuned weights loaded") 
-            logger.info("✓ Q-Former + Projection: Final model weights loaded")
-            logger.info("=" * 60)
+            logger.info("✓ BiomedCLIP: Fine-tuned weights loaded" if biomedclip_file else "⚠ BiomedCLIP: Using default weights")
+            logger.info("✓ BioGPT: Fine-tuned weights loaded" if biogpt_file else "⚠ BioGPT: Using default weights")
         else:
-            logger.warning("=" * 60)
-            logger.warning("MODEL LOADING SUMMARY:")
             logger.warning("⚠ BiomedCLIP: Using default weights")
             logger.warning("⚠ BioGPT: Using default weights")
-            logger.warning("✓ Q-Former + Projection: Final model weights loaded")
-            logger.warning("=" * 60)
+        logger.info("✓ Q-Former + Projection: Final model weights loaded" if final_model_file else "⚠ Q-Former + Projection: Using random weights")
+        logger.info("=" * 60)
         
         return model
     
@@ -796,7 +794,7 @@ class XrayReportGenerator(PreTrainedModel):
             outputs = self.biogpt_decoder(**biogpt_decoder_kwargs) 
             return outputs.loss
         else:
-            # Inference mode
+            # Inference mode - improved generation
             input_embeddings = query_embeddings
             input_attention_mask = torch.ones_like(input_embeddings[:, :, 0], dtype=torch.long)
             
@@ -817,24 +815,35 @@ class XrayReportGenerator(PreTrainedModel):
                     torch.ones_like(prompt_token_ids)
                 ], dim=1)
 
+            # More conservative generation parameters to reduce nonsense
             generation_kwargs = {
                 "inputs_embeds": input_embeddings,
                 "attention_mask": input_attention_mask,
-                "max_new_tokens": 256,
-                "min_length": 20,
-                "num_beams": 5,
-                "temperature": 1.0,
-                "top_p": 0.95,
-                "do_sample": True,
-                "repetition_penalty": 1.5,
+                "max_new_tokens": max_new_tokens,
+                "min_length": 10,
+                "num_beams": num_beams,
+                "temperature": 0.7,  # Lower temperature for more focused output
+                "top_p": 0.9,        # Slightly lower top_p
+                "do_sample": do_sample,
+                "repetition_penalty": 1.2,  # Lower repetition penalty
                 "eos_token_id": self.eos_token_id,
                 "pad_token_id": self.tokenizer.pad_token_id,
-                "length_penalty": 2.0,
-                "no_repeat_ngram_size": 3
+                "length_penalty": 1.0,      # Neutral length penalty
+                "no_repeat_ngram_size": 2,  # Smaller ngram size
+                "bad_words_ids": None,
+                "early_stopping": True
             }
 
             outputs = self.biogpt_decoder.generate(**generation_kwargs)
-            return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            
+            # Clean the output
+            generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            
+            # Remove any obvious artifacts or nonsense patterns
+            if prompt_text and generated_text.startswith(prompt_text):
+                generated_text = generated_text[len(prompt_text):].strip()
+            
+            return generated_text
     
     def generate_report(
         self, 
@@ -842,10 +851,10 @@ class XrayReportGenerator(PreTrainedModel):
         prompt_text: Optional[str] = None,
         max_new_tokens: int = 256,
         num_beams: int = 5,
-        temperature: float = 1.0,
-        top_p: float = 0.95,
+        temperature: float = 0.7,
+        top_p: float = 0.9,
         do_sample: bool = True,
-        repetition_penalty: float = 1.5,
+        repetition_penalty: float = 1.2,
         **kwargs
     ) -> str:
         """
@@ -872,7 +881,9 @@ class XrayReportGenerator(PreTrainedModel):
                 max_new_tokens=max_new_tokens,
                 num_beams=num_beams,
                 do_sample=do_sample,
+                temperature=temperature,
                 top_p=top_p,
+                repetition_penalty=repetition_penalty,
                 **kwargs
             )
 
