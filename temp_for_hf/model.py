@@ -101,8 +101,8 @@ class XrayReportGenerator(PreTrainedModel):
         self.qformer = Qformer(qformer_bert_config)
         
         # Initialize BioGPT (will load fine-tuned weights later in from_pretrained)
-        self.tokenizer = BioGptTokenizer.from_pretrained(config.biogpt_config["model_name"])
-        self.biogpt_decoder = BioGptForCausalLM.from_pretrained(config.biogpt_config["model_name"])
+        self.tokenizer = BioGptTokenizer.from_pretrained("hajar001/xray_report_generator")
+        self.biogpt_decoder = BioGptForCausalLM.from_pretrained("hajar001/xray_report_generator")
         
         # Projection layer
         biogpt_hidden_size = self.biogpt_decoder.config.hidden_size
@@ -162,7 +162,6 @@ class XrayReportGenerator(PreTrainedModel):
         
         checkpoint_files = config.checkpoint_files
         
-        # 1. Try to load final model state first
         try:
             final_model_file = cached_file(
                 pretrained_model_name_or_path,
@@ -179,7 +178,6 @@ class XrayReportGenerator(PreTrainedModel):
             if any(key.startswith('module.') for key in state_dict.keys()):
                 state_dict = {key.replace('module.', ''): value for key, value in state_dict.items()}
             
-            # Load with strict=False to handle any missing keys gracefully
             missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
             if missing_keys:
                 print(f"Missing keys when loading final model: {missing_keys}")
@@ -187,12 +185,11 @@ class XrayReportGenerator(PreTrainedModel):
                 print(f"Unexpected keys when loading final model: {unexpected_keys}")
                 
             print("Final model weights loaded successfully.")
-            # return model
+            
             
         except Exception as e:
             print(f"Could not load final model weights: {e}. Loading individual components.")
         
-        # 2. Load individual component weights if final model failed
         # Load BiomedCLIP weights
         try:
             biomedclip_file = cached_file(
