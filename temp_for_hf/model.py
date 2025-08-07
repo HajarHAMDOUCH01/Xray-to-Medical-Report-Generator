@@ -169,7 +169,7 @@ class XrayReportGenerator(PreTrainedModel):
 
         # Load custom tokenizer from the repo if available
         try:
-            print("Loading custom tokenizer from repository...")
+            logger.info("Loading custom tokenizer from repository...")
             custom_tokenizer = BioGptTokenizer.from_pretrained(
                 pretrained_model_name_or_path,
                 cache_dir=cache_dir,
@@ -178,6 +178,21 @@ class XrayReportGenerator(PreTrainedModel):
                 token=token,
                 revision=revision
             )
+            
+            # Check vocabulary size compatibility and resize before loading weights
+            original_vocab_size = model.biogpt_decoder.config.vocab_size
+            custom_vocab_size = len(custom_tokenizer)
+            
+            print(f"Original BioGPT vocab size: {original_vocab_size}")
+            print(f"Custom tokenizer vocab size: {custom_vocab_size}")
+            
+            if original_vocab_size != custom_vocab_size:
+                print(f"Resizing model embeddings from {original_vocab_size} to {custom_vocab_size}")
+                # Resize the model's token embeddings to match custom tokenizer
+                model.biogpt_decoder.resize_token_embeddings(custom_vocab_size)
+                print("Model embeddings resized successfully.")
+            
+            # Now it's safe to use the custom tokenizer
             model.tokenizer = custom_tokenizer
             print("Custom tokenizer loaded successfully.")
             
