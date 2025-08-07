@@ -32,7 +32,7 @@ class XrayReportGeneratorConfig(PretrainedConfig):
         super().__init__(**kwargs)
         
         # Default configurations
-        self.biomedclip_config = biomedclip_config or {
+        self.biomedclip_config = {
             "model_name": "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
             "feature_dim": 512,
             "checkpoint_file": "biomedclip_finetuned.pth"
@@ -57,7 +57,7 @@ class XrayReportGeneratorConfig(PretrainedConfig):
             "position_embedding_type": "absolute"
         }
         
-        self.biogpt_config = biogpt_config or {
+        self.biogpt_config = {
             "model_name": "microsoft/biogpt",
             "checkpoint_file": "biogpt_finetuned.pth"
         }
@@ -73,7 +73,7 @@ class XrayReportGeneratorConfig(PretrainedConfig):
             "biomedclip_encoder_width": 512
         }
         
-        self.checkpoint_files = checkpoint_files or {
+        self.checkpoint_files = {
             "final_model": "final_model.pth",
             "biomedclip": "biomedclip_finetuned.pth",
             "biogpt": "biogpt_finetuned.pth"
@@ -89,13 +89,11 @@ class XrayReportGenerator(PreTrainedModel):
         super().__init__(config)
         
         self.config = config
-        # Don't set self.device - use self.device property from PreTrainedModel
         
-        # Initialize BiomedCLIP encoder (without fine-tuned weights initially)
         self.biomedclip_encoder = BiomedCLIPEncoder(
             model_name=config.biomedclip_config["model_name"],
             weights_path=None,  # Fine-tuned weights loaded later in from_pretrained
-            device=None  # Let it determine device automatically
+            device=None 
         )
         
         # Initialize Q-Former
@@ -116,14 +114,11 @@ class XrayReportGenerator(PreTrainedModel):
         else:
             self.qformer_output_to_biogpt_input_projection = None
         
-        # Set up tokenizer
         self.eos_token_id = self.tokenizer.eos_token_id
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
             logger.warning("Tokenizer pad_token_id not set, using eos_token_id as pad_token_id.")
         
-        # Move to device after initialization
-        # Note: Don't move biomedclip_encoder here, it handles its own device management
     
     @classmethod
     def from_pretrained(
@@ -145,7 +140,6 @@ class XrayReportGenerator(PreTrainedModel):
         """
         from transformers.utils import cached_file
         
-        # Load config - HuggingFace will handle downloading
         if config is None:
             try:
                 config_file = cached_file(
@@ -164,10 +158,8 @@ class XrayReportGenerator(PreTrainedModel):
                 logger.warning(f"Could not load config: {e}. Using default config.")
                 config = cls.config_class()
         
-        # Initialize model with config (this loads default weights for BioGPT/BiomedCLIP)
         model = cls(config)
         
-        # Load checkpoint files from HuggingFace Hub
         checkpoint_files = config.checkpoint_files
         
         # 1. Try to load final model state first
@@ -184,7 +176,6 @@ class XrayReportGenerator(PreTrainedModel):
             logger.info(f"Loading final model weights from {final_model_file}")
             state_dict = torch.load(final_model_file, map_location='cpu')
             
-            # Handle potential DataParallel wrapper
             if any(key.startswith('module.') for key in state_dict.keys()):
                 state_dict = {key.replace('module.', ''): value for key, value in state_dict.items()}
             
@@ -365,7 +356,7 @@ class XrayReportGenerator(PreTrainedModel):
         self, 
         image_path: str, 
         prompt_text: Optional[str] = None,
-        max_new_tokens: int = 256,
+        max_new_tokens: int = 300,
         num_beams: int = 5,
         temperature: float = 1.0,
         top_p: float = 0.95,

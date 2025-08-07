@@ -7,7 +7,7 @@ import os
 class BiomedCLIPEncoder(nn.Module):  
     def __init__(self, 
                  model_name="hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
-                 weights_path=None,
+                 weights_path="biomedclip_finetuned.pth",
                  device=None):  
         super().__init__()  
         
