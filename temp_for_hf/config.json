@@ -30,7 +30,8 @@
   },
   "biogpt_config": {
     "model_name": "microsoft/biogpt",
-    "checkpoint_file": "biogpt_finetuned.pth"
+    "checkpoint_file": "biogpt_finetuned.pth",
+    "use_custom_tokenizer": true
   },
   "projection_layer": {
     "enabled": true,
@@ -45,6 +46,12 @@
     "final_model": "final_model.pth",
     "biomedclip": "biomedclip_finetuned.pth",
     "biogpt": "biogpt_finetuned.pth"
+  },
+  "tokenizer_files": {
+    "vocab_file": "vocab.json",
+    "merges_file": "merges.txt",
+    "tokenizer_config": "tokenizer_config.json",
+    "special_tokens_map": "special_tokens_map.json"
   },
   "torch_dtype": "float32",
   "transformers_version": "4.21.0"

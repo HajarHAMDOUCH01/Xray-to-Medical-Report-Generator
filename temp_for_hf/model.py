@@ -79,6 +79,13 @@ class XrayReportGeneratorConfig(PretrainedConfig):
             "biogpt": "biogpt_finetuned.pth"
         }
 
+        self.tokenizer_files = kwargs.get('tokenizer_files', {
+            "vocab_file": "vocab.json",
+            "merges_file": "merges.txt", 
+            "tokenizer_config": "tokenizer_config.json",
+            "special_tokens_map": "special_tokens_map.json"
+        })
+
 class XrayReportGenerator(PreTrainedModel):
     """
     X-ray Report Generator combining BiomedCLIP, Q-Former, and BioGPT.
@@ -101,8 +108,8 @@ class XrayReportGenerator(PreTrainedModel):
         self.qformer = Qformer(qformer_bert_config)
         
         # Initialize BioGPT (will load fine-tuned weights later in from_pretrained)
-        self.tokenizer = BioGptTokenizer.from_pretrained("hajar001/xray_report_generator")
-        self.biogpt_decoder = BioGptForCausalLM.from_pretrained("hajar001/xray_report_generator")
+        self.tokenizer = BioGptTokenizer.from_pretrained(config.biogpt_config["model_name"])
+        self.biogpt_decoder = BioGptForCausalLM.from_pretrained(config.biogpt_config["model_name"])
         
         # Projection layer
         biogpt_hidden_size = self.biogpt_decoder.config.hidden_size
@@ -159,6 +166,29 @@ class XrayReportGenerator(PreTrainedModel):
                 config = cls.config_class()
         
         model = cls(config)
+
+        # Load custom tokenizer from the repo if available
+        try:
+            print("Loading custom tokenizer from repository...")
+            custom_tokenizer = BioGptTokenizer.from_pretrained(
+                pretrained_model_name_or_path,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                local_files_only=local_files_only,
+                token=token,
+                revision=revision
+            )
+            model.tokenizer = custom_tokenizer
+            print("Custom tokenizer loaded successfully.")
+            
+            # Update EOS token ID with custom tokenizer
+            model.eos_token_id = model.tokenizer.eos_token_id
+            if model.tokenizer.pad_token_id is None:
+                model.tokenizer.pad_token_id = model.tokenizer.eos_token_id
+                print("Custom tokenizer pad_token_id not set, using eos_token_id as pad_token_id.")
+                
+        except Exception as e:
+            print(f"Could not load custom tokenizer: {e}. Using default BioGPT tokenizer.")
         
         checkpoint_files = config.checkpoint_files
         
