@@ -173,7 +173,7 @@ class XrayReportGenerator(PreTrainedModel):
                 token=token,
                 revision=revision
             )
-            logger.info(f"Loading final model weights from {final_model_file}")
+            print(f"Loading final model weights from {final_model_file}")
             state_dict = torch.load(final_model_file, map_location='cpu')
             
             if any(key.startswith('module.') for key in state_dict.keys()):
@@ -186,7 +186,7 @@ class XrayReportGenerator(PreTrainedModel):
             if unexpected_keys:
                 logger.warning(f"Unexpected keys when loading final model: {unexpected_keys}")
                 
-            logger.info("Final model weights loaded successfully.")
+            print("Final model weights loaded successfully.")
             return model
             
         except Exception as e:
@@ -204,10 +204,10 @@ class XrayReportGenerator(PreTrainedModel):
                 token=token,
                 revision=revision
             )
-            logger.info(f"Loading BiomedCLIP weights from {biomedclip_file}")
+            print(f"Loading BiomedCLIP weights from {biomedclip_file}")
             biomedclip_state = torch.load(biomedclip_file, map_location='cpu')
             model.biomedclip_encoder.model.load_state_dict(biomedclip_state, strict=False)
-            logger.info("BiomedCLIP weights loaded successfully.")
+            print("BiomedCLIP weights loaded successfully.")
         except Exception as e:
             logger.warning(f"Could not load BiomedCLIP weights: {e}. Using default weights.")
         
@@ -222,10 +222,10 @@ class XrayReportGenerator(PreTrainedModel):
                 token=token,
                 revision=revision
             )
-            logger.info(f"Loading BioGPT weights from {biogpt_file}")
+            print(f"Loading BioGPT weights from {biogpt_file}")
             biogpt_state = torch.load(biogpt_file, map_location='cpu')
             model.biogpt_decoder.load_state_dict(biogpt_state, strict=False)
-            logger.info("BioGPT weights loaded successfully.")
+            print("BioGPT weights loaded successfully.")
         except Exception as e:
             logger.warning(f"Could not load BioGPT weights: {e}. Using default weights.")
         
