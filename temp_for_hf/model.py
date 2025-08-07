@@ -117,7 +117,7 @@ class XrayReportGenerator(PreTrainedModel):
         self.eos_token_id = self.tokenizer.eos_token_id
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-            logger.warning("Tokenizer pad_token_id not set, using eos_token_id as pad_token_id.")
+            print("Tokenizer pad_token_id not set, using eos_token_id as pad_token_id.")
         
     
     @classmethod
@@ -155,7 +155,7 @@ class XrayReportGenerator(PreTrainedModel):
                     config_dict = json.load(f)
                 config = cls.config_class(**config_dict)
             except Exception as e:
-                logger.warning(f"Could not load config: {e}. Using default config.")
+                print(f"Could not load config: {e}. Using default config.")
                 config = cls.config_class()
         
         model = cls(config)
@@ -182,15 +182,15 @@ class XrayReportGenerator(PreTrainedModel):
             # Load with strict=False to handle any missing keys gracefully
             missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
             if missing_keys:
-                logger.warning(f"Missing keys when loading final model: {missing_keys}")
+                print(f"Missing keys when loading final model: {missing_keys}")
             if unexpected_keys:
-                logger.warning(f"Unexpected keys when loading final model: {unexpected_keys}")
+                print(f"Unexpected keys when loading final model: {unexpected_keys}")
                 
             print("Final model weights loaded successfully.")
             return model
             
         except Exception as e:
-            logger.warning(f"Could not load final model weights: {e}. Loading individual components.")
+            print(f"Could not load final model weights: {e}. Loading individual components.")
         
         # 2. Load individual component weights if final model failed
         # Load BiomedCLIP weights
@@ -209,7 +209,7 @@ class XrayReportGenerator(PreTrainedModel):
             model.biomedclip_encoder.model.load_state_dict(biomedclip_state, strict=False)
             print("BiomedCLIP weights loaded successfully.")
         except Exception as e:
-            logger.warning(f"Could not load BiomedCLIP weights: {e}. Using default weights.")
+            print(f"Could not load BiomedCLIP weights: {e}. Using default weights.")
         
         # Load BioGPT weights
         try:
@@ -227,7 +227,7 @@ class XrayReportGenerator(PreTrainedModel):
             model.biogpt_decoder.load_state_dict(biogpt_state, strict=False)
             print("BioGPT weights loaded successfully.")
         except Exception as e:
-            logger.warning(f"Could not load BioGPT weights: {e}. Using default weights.")
+            print(f"Could not load BioGPT weights: {e}. Using default weights.")
         
         return model
     
