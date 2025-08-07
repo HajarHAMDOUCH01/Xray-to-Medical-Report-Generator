@@ -10,6 +10,7 @@ from transformers.utils import logging
 
 logger = logging.get_logger(__name__)
 
+# Import the model components
 from .q_former import Qformer, BertConfig
 from .encoder import BiomedCLIPEncoder
 
@@ -88,13 +89,13 @@ class XrayReportGenerator(PreTrainedModel):
         super().__init__(config)
         
         self.config = config
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Don't set self.device - use self.device property from PreTrainedModel
         
         # Initialize BiomedCLIP encoder (without fine-tuned weights initially)
         self.biomedclip_encoder = BiomedCLIPEncoder(
             model_name=config.biomedclip_config["model_name"],
             weights_path=None,  # Fine-tuned weights loaded later in from_pretrained
-            device=self.device
+            device=None  # Let it determine device automatically
         )
         
         # Initialize Q-Former
@@ -121,10 +122,8 @@ class XrayReportGenerator(PreTrainedModel):
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
             logger.warning("Tokenizer pad_token_id not set, using eos_token_id as pad_token_id.")
         
-        # Move to device
-        self.to(self.device)
-        if hasattr(self.biomedclip_encoder, 'model'):
-            self.biomedclip_encoder.model = self.biomedclip_encoder.model.to(self.device)
+        # Move to device after initialization
+        # Note: Don't move biomedclip_encoder here, it handles its own device management
     
     @classmethod
     def from_pretrained(
