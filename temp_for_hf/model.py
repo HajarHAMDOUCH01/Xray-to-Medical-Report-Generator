@@ -186,6 +186,7 @@ class XrayReportGenerator(PreTrainedModel):
             print(f"Original BioGPT vocab size: {original_vocab_size}")
             print(f"Custom tokenizer vocab size: {custom_vocab_size}")
             
+            # it's already the same 
             if original_vocab_size != custom_vocab_size:
                 print(f"Resizing model embeddings from {original_vocab_size} to {custom_vocab_size}")
                 # Resize the model's token embeddings to match custom tokenizer
@@ -378,10 +379,10 @@ class XrayReportGenerator(PreTrainedModel):
             generation_kwargs = {
                 "inputs_embeds": input_embeddings,
                 "attention_mask": input_attention_mask,
-                "max_new_tokens": 256,
+                "max_new_tokens": 200,
                 "min_length": 20,
                 "num_beams": 5,
-                "temperature": 1.0,
+                "temperature": 0.7,
                 "top_p": 0.95,
                 "do_sample": True,
                 "repetition_penalty": 1.5,
