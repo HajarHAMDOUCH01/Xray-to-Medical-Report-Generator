@@ -187,7 +187,7 @@ class XrayReportGenerator(PreTrainedModel):
                 print(f"Unexpected keys when loading final model: {unexpected_keys}")
                 
             print("Final model weights loaded successfully.")
-            return model
+            # return model
             
         except Exception as e:
             print(f"Could not load final model weights: {e}. Loading individual components.")
