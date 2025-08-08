@@ -25,7 +25,7 @@ class BiomedCLIPEncoder(nn.Module):
             except Exception as e:
                 print(f"Error loading custom weights: {e}. Using default BiomedCLIP weights.")
         else:
-            print("Using default BiomedCLIP weights, weights could be loaded later...")
+            print("...")
 
         self.model = self.model.to(self.device)
         self.model.eval()

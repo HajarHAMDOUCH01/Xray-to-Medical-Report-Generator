@@ -235,7 +235,7 @@ class XrayReportGenerator(PreTrainedModel):
                 print(f"Unexpected keys when loading final model: {unexpected_keys}")
                 
             print("Final model weights loaded successfully.")
-            
+            return model
             
         except Exception as e:
             print(f"Could not load final model weights: {e}. Loading individual components.")
@@ -388,7 +388,7 @@ class XrayReportGenerator(PreTrainedModel):
                 "num_beams": 5,
                 "temperature": 0.7,
                 "top_p": 0.95,
-                "do_sample": True,
+                "do_sample": False,
                 "repetition_penalty": 1.5,
                 "eos_token_id": self.eos_token_id,
                 "pad_token_id": self.tokenizer.pad_token_id,
