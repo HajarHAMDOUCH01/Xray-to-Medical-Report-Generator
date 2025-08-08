@@ -4,7 +4,7 @@ from PIL import Image
 import open_clip
 import os
 
-project_path = '/content/report_generator'
+project_path = 'Set local project path after cloning'
 os.chdir(project_path)
 
 import sys
@@ -16,7 +16,7 @@ from configs.constants import MODEL_NAMES, MODEL_WEIGHTS
 
 class BiomedCLIPEncoder(nn.Module):  
     def __init__(self, model_name=MODEL_NAMES['biomedclip'],
-                 weights_path=MODEL_WEIGHTS['biomedclip'],
+                 weights_path=None,
                  device=None):  
         super().__init__()  
         

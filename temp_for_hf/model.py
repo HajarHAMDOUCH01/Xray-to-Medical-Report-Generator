@@ -124,7 +124,7 @@ class XrayReportGenerator(PreTrainedModel):
         self.eos_token_id = self.tokenizer.eos_token_id
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-            print("Tokenizer pad_token_id not set, using eos_token_id as pad_token_id.")
+            logger.warning("Tokenizer pad_token_id not set, using eos_token_id as pad_token_id.")
         
     
     @classmethod
@@ -162,7 +162,7 @@ class XrayReportGenerator(PreTrainedModel):
                     config_dict = json.load(f)
                 config = cls.config_class(**config_dict)
             except Exception as e:
-                print(f"Could not load config: {e}. Using default config.")
+                logger.warning(f"Could not load config: {e}. Using default config.")
                 config = cls.config_class()
         
         model = cls(config)
@@ -183,32 +183,31 @@ class XrayReportGenerator(PreTrainedModel):
             original_vocab_size = model.biogpt_decoder.config.vocab_size
             custom_vocab_size = len(custom_tokenizer)
             
-            print(f"Original BioGPT vocab size: {original_vocab_size}")
-            print(f"Custom tokenizer vocab size: {custom_vocab_size}")
+            # print(f"Original BioGPT vocab size: {original_vocab_size}")
+            # print(f"Custom tokenizer vocab size: {custom_vocab_size}")
             
-            # it's already the same 
             if original_vocab_size != custom_vocab_size:
-                print(f"Resizing model embeddings from {original_vocab_size} to {custom_vocab_size}")
+                logger.info(f"Resizing model embeddings from {original_vocab_size} to {custom_vocab_size}")
                 # Resize the model's token embeddings to match custom tokenizer
                 model.biogpt_decoder.resize_token_embeddings(custom_vocab_size)
-                print("Model embeddings resized successfully.")
+                logger.info("Model embeddings resized successfully.")
             
             # Now it's safe to use the custom tokenizer
             model.tokenizer = custom_tokenizer
-            print("Custom tokenizer loaded successfully.")
-            print("EOS token:", model.tokenizer.eos_token)
-            print("EOS token id:", model.tokenizer.eos_token_id)
-            print("Special tokens:", model.tokenizer.special_tokens_map)
+            logger.info("Custom tokenizer loaded successfully.")
+            # print("EOS token:", model.tokenizer.eos_token)
+            # print("EOS token id:", model.tokenizer.eos_token_id)
+            # print("Special tokens:", model.tokenizer.special_tokens_map)
 
             
             # Update EOS token ID with custom tokenizer
             model.eos_token_id = model.tokenizer.eos_token_id
             if model.tokenizer.pad_token_id is None:
                 model.tokenizer.pad_token_id = model.tokenizer.eos_token_id
-                print("Custom tokenizer pad_token_id not set, using eos_token_id as pad_token_id.")
+                logger.warning("Custom tokenizer pad_token_id not set, using eos_token_id as pad_token_id.")
                 
         except Exception as e:
-            print(f"Could not load custom tokenizer: {e}. Using default BioGPT tokenizer.")
+            logger.warning(f"Could not load custom tokenizer: {e}. Using default BioGPT tokenizer.")
         
         checkpoint_files = config.checkpoint_files
         
@@ -222,7 +221,7 @@ class XrayReportGenerator(PreTrainedModel):
                 token=token,
                 revision=revision
             )
-            print(f"Loading final model weights from {final_model_file}")
+            logger.info(f"Loading final model weights from {final_model_file}")
             state_dict = torch.load(final_model_file, map_location='cpu')
             
             if any(key.startswith('module.') for key in state_dict.keys()):
@@ -230,15 +229,15 @@ class XrayReportGenerator(PreTrainedModel):
             
             missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
             if missing_keys:
-                print(f"Missing keys when loading final model: {missing_keys}")
+                logger.warning(f"Missing keys when loading final model: {missing_keys}")
             if unexpected_keys:
-                print(f"Unexpected keys when loading final model: {unexpected_keys}")
+                logger.warning(f"Unexpected keys when loading final model: {unexpected_keys}")
                 
-            print("Final model weights loaded successfully.")
+            logger.info("Final model weights loaded successfully.")
             return model
             
         except Exception as e:
-            print(f"Could not load final model weights: {e}. Loading individual components.")
+            logger.warning(f"Could not load final model weights: {e}. Loading individual components.")
         
         # Load BiomedCLIP weights
         try:
@@ -251,12 +250,12 @@ class XrayReportGenerator(PreTrainedModel):
                 token=token,
                 revision=revision
             )
-            print(f"Loading BiomedCLIP weights from {biomedclip_file}")
+            logger.info(f"Loading BiomedCLIP weights from {biomedclip_file}")
             biomedclip_state = torch.load(biomedclip_file, map_location='cpu')
             model.biomedclip_encoder.model.load_state_dict(biomedclip_state, strict=False)
-            print("BiomedCLIP weights loaded successfully.")
+            logger.info("BiomedCLIP weights loaded successfully.")
         except Exception as e:
-            print(f"Could not load BiomedCLIP weights: {e}. Using default weights.")
+            logger.warning(f"Could not load BiomedCLIP weights: {e}. Using default weights.")
         
         # Load BioGPT weights
         try:
@@ -269,12 +268,12 @@ class XrayReportGenerator(PreTrainedModel):
                 token=token,
                 revision=revision
             )
-            print(f"Loading BioGPT weights from {biogpt_file}")
+            logger.info(f"Loading BioGPT weights from {biogpt_file}")
             biogpt_state = torch.load(biogpt_file, map_location='cpu')
             model.biogpt_decoder.load_state_dict(biogpt_state, strict=False)
-            print("BioGPT weights loaded successfully.")
+            logger.info("BioGPT weights loaded successfully.")
         except Exception as e:
-            print(f"Could not load BioGPT weights: {e}. Using default weights.")
+            logger.warning(f"Could not load BioGPT weights: {e}. Using default weights.")
         
         return model
     

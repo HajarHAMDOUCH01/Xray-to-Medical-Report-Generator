@@ -12,14 +12,14 @@ if project_root not in sys.path:
 
 from models.trained_models.biogpt.biogpt_model import XrayReportGenerator
 from models.trained_models.Q_former.q_former import BertConfig
-from configs.constants import MODEL_NAMES, MODEL_WEIGHTS
+from configs.constants import MODEL_NAMES
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 def load_model(model_path, device):
-    """Load the trained model with proper configuration"""
+    """Load the trained model from a weights file path"""
     qformer_config = BertConfig(
         hidden_size=768,
         num_hidden_layers=6,
@@ -41,17 +41,15 @@ def load_model(model_path, device):
     
     model = XrayReportGenerator(
         biomedclip_model_name=MODEL_NAMES['biomedclip'],
-        biomedclip_weights_path=MODEL_WEIGHTS['biomedclip'],
         qformer_config=qformer_config,
-        biogpt_weights_path=MODEL_WEIGHTS['biogpt']
     ).to(device)
     
     if model_path and os.path.exists(model_path):
         logger.info(f"Loading fine-tuned weights from {model_path}")
         state_dict = torch.load(model_path, map_location=device)
-        model.load_state_dict(state_dict)
+        model.load_state_dict(state_dict, strict=True)
     else:
-        logger.warning("No fine-tuned weights found, using base model")
+        raise FileNotFoundError(f"No fine-tuned weights found at {model_path}. Please provide path to final_model.pth")
     
     model.eval()
     return model
