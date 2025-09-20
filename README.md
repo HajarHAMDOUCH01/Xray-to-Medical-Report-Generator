@@ -1,9 +1,45 @@
 ---
 # X-Ray Report Generator
 
-This repository contains the code for the `hajar001/xray_report_generator` model, which is designed to generate medical reports from X-ray images.
+This repository contains the code for the `hajar001/xray_report_generator` model in hugging face, which is designed to generate medical reports from X-ray images.
 
 ---
+
+## How to Test This Model
+
+**Local usage**
+
+To test the model and generate reports locally, follow these steps:
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/HajarHAMDOUCH01/report_generator
+    cd report_generator 
+    ```
+
+2.  **Download Model Weights:**
+    You can download the necessary model weights from the Hugging Face repository: [LINK_TO_HUGGING_FACE_REPO](https://huggingface.co/hajar001/xray_report_generator)
+
+3.  **Place Weights in Configuration:**
+    After downloading the weights, update their paths in the `configs.constants.py` file within this repository.
+
+4.  **Run Inference:**
+    Example prediction command :
+    all arguments are in predict.py
+    ```bash
+      python predict.py \
+    --image_path xray.jpg \
+    --model_path final_model.pth \
+    --prompt_text "prompt text" \
+    --max_length 256 \
+    --num_beams 5 \
+    --do_sample \
+    --top_p 0.95
+    ```
+---
+
+**Hugging face**
+go to [Hugging face repository](https://huggingface.co/hajar001/xray_report_generator)
 
 This model generates medical reports from X-ray images using a multi-modal architecture combining:
 
@@ -148,37 +184,6 @@ If you use this model, please cite the original papers:
 }
 
 ```
-
-## How to Test This Model
-
-To test the model and generate reports locally, follow these steps:
-
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/HajarHAMDOUCH01/report_generator
-    cd report_generator 
-    ```
-
-2.  **Download Model Weights:**
-    You can download the necessary model weights from the Hugging Face repository: [LINK_TO_HUGGING_FACE_REPO](https://huggingface.co/hajar001/xray_report_generator)
-
-3.  **Place Weights in Configuration:**
-    After downloading the weights, update their paths in the `configs.constants.py` file within this repository.
-
-4.  **Run Inference:**
-    Example prediction command :
-    all arguments are in predict.py
-    ```bash
-      python predict.py \
-    --image_path xray.jpg \
-    --model_path final_model.pth \
-    --prompt_text "prompt text" \
-    --max_length 256 \
-    --num_beams 5 \
-    --do_sample \
-    --top_p 0.95
-    ```
----
 
 ## Contributing
 
