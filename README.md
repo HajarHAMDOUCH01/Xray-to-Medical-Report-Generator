@@ -7,6 +7,11 @@ This repository contains the code for the `hajar001/xray_report_generator` model
 
 ## How to Test This Model
 
+
+**Hugging face**
+
+go to [Hugging face repository](https://huggingface.co/hajar001/xray_report_generator)
+
 **Local usage**
 
 To test the model and generate reports locally, follow these steps:
@@ -38,8 +43,6 @@ To test the model and generate reports locally, follow these steps:
     ```
 ---
 
-**Hugging face**
-go to [Hugging face repository](https://huggingface.co/hajar001/xray_report_generator)
 
 This model generates medical reports from X-ray images using a multi-modal architecture combining:
 
